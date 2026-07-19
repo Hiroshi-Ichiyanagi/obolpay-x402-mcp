@@ -1,0 +1,4 @@
+mcp[cli]
+web3
+eth-account
+requests
