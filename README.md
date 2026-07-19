@@ -1,5 +1,11 @@
 # obolpay-x402-mcp
 
+[![Listed on Glama](https://glama.ai/mcp/servers/@Hiroshi-Ichiyanagi/obolpay-x402-mcp/badges/score.svg)](https://glama.ai/mcp/servers/@Hiroshi-Ichiyanagi/obolpay-x402-mcp)
+
+<a href="https://glama.ai/mcp/servers/@Hiroshi-Ichiyanagi/obolpay-x402-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@Hiroshi-Ichiyanagi/obolpay-x402-mcp/badge" alt="obolpay-x402-mcp MCP server" />
+</a>
+
 > 📖 **Tutorial:** [Let your AI agent autonomously buy data — x402 + gasless prepaid + MCP on Base](https://dev.to/hiroshi_ichiyanagi/let-your-ai-agent-autonomously-buy-data-x402-gasless-prepaid-mcp-on-base-8l8)
 
 
