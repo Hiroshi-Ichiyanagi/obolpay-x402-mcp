@@ -1,5 +1,8 @@
 # obolpay-x402-mcp
 
+> 📖 **Tutorial:** [Let your AI agent autonomously buy data — x402 + gasless prepaid + MCP on Base](https://dev.to/hiroshi_ichiyanagi/let-your-ai-agent-autonomously-buy-data-x402-gasless-prepaid-mcp-on-base-8l8)
+
+
 MCP server for the **live [Obolpay x402 gateway](https://x402.obolpay.xyz)** — pay-per-call premium data for AI agents, settled in **USDC on Base mainnet** via HTTP 402.
 
 Give any MCP-compatible agent (Claude Desktop, etc.) the ability to **discover → evaluate (free preview) → pay once → then call GASLESS forever → verify a signed receipt** — autonomously.
