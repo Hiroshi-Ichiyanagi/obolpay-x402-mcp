@@ -13,6 +13,16 @@ MCP server for the **live [Obolpay x402 gateway](https://x402.obolpay.xyz)** —
 
 Give any MCP-compatible agent (Claude Desktop, etc.) the ability to **discover → evaluate (free preview) → pay once → then call GASLESS forever → verify a signed receipt** — autonomously.
 
+## 🚀 Copy-paste examples (start here) → [`examples/`](examples/)
+
+No MCP needed to try it. **Zero setup, no wallet, stdlib only:**
+```bash
+python3 examples/quickstart_preview.py   # evaluate the data QUALITY for free (trustless preview)
+```
+Then buy today's verifiable `openunit` value with one signed USDC micropayment
+([`buy_openunit.py`](examples/buy_openunit.py)), or drop it into a LangChain/any-LLM agent as a
+tool ([`agent_tool.py`](examples/agent_tool.py)). Full walkthrough: [`examples/README.md`](examples/README.md).
+
 ## Tools
 
 | Tool | What it does |
