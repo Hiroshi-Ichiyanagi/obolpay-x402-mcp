@@ -10,6 +10,7 @@ Shows the killer feature: an agent evaluates the data QUALITY *before* paying
 Then look at buy_openunit.py for the paid path (one signed USDC micropayment).
 """
 import json
+import urllib.error
 import urllib.request
 
 BASE = "https://x402.obolpay.xyz"
@@ -51,5 +52,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import urllib.error  # noqa
     main()
