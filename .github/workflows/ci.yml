@@ -14,3 +14,5 @@ jobs:
         with:
           python-version: "3.x"
       - run: python -m compileall -q .
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -q   # import破壊(例: mcp 2.0のFastMCP削除)を含むスモーク
