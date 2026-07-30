@@ -1,4 +1,4 @@
-mcp[cli]
+mcp[cli]>=1.28,<2  # mcp 2.0 は FastMCP(mcp.server.fastmcp) を削除。<2 に固定(兄弟リポ準拠)
 web3
 eth-account
 requests
