@@ -38,10 +38,13 @@ TEST_ADDR = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
 # ---------------------------------------------------------------- fakes
 
 class FakeResp:
-    def __init__(self, status_code=200, json_data=None, text=None):
+    def __init__(self, status_code=200, json_data=None, text=None, headers=None):
         self.status_code = status_code
         self._json = {} if json_data is None else json_data
         self.text = json.dumps(self._json) if text is None else text
+        # 本物の requests.Response は必ず headers を持つ。偽物が持たないと、
+        # 「本番では必ず在る属性」を読むコードがテストでだけ AttributeError になる。
+        self.headers = {"content-type": "application/json"} if headers is None else headers
 
     def json(self):
         return self._json
@@ -55,13 +58,19 @@ class FakeRequests:
         self._posts = list(post_responses)
         self.get_calls = []
         self.post_calls = []
+        # 残りのキーワード引数も残す。allow_redirects のように「渡していない」事自体が
+        # 脆弱性であるものを検査するため（**kw で捨てると検査できない）。
+        self.get_kwargs = []
+        self.post_kwargs = []
 
     def get(self, url, headers=None, timeout=None, **kw):
         self.get_calls.append({"url": url, "headers": headers, "timeout": timeout})
+        self.get_kwargs.append(kw)
         return self._gets.pop(0) if len(self._gets) > 1 else self._gets[0]
 
     def post(self, url, headers=None, json=None, timeout=None, **kw):
         self.post_calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        self.post_kwargs.append(kw)
         return self._posts.pop(0) if len(self._posts) > 1 else self._posts[0]
 
 
@@ -85,7 +94,7 @@ def make_challenge(amount="0.005"):
     }}
 
 
-def install_fake_web3(monkeypatch, calls, tx_hash_hex="abc123def456"):
+def install_fake_web3(monkeypatch, calls, tx_hash_hex="abc123def456", receipt_raises=None):
     """web3 モジュールを偽物に差し替え(RPC に出ない)。eth_account は本物のまま、
     sign_transaction だけ偽 acct 経由で無害化する。"""
     mod = types.ModuleType("web3")
@@ -124,8 +133,14 @@ def install_fake_web3(monkeypatch, calls, tx_hash_hex="abc123def456"):
                     return tx_hash_hex
             return _H()
 
-        def wait_for_transaction_receipt(self, txh):
+        def wait_for_transaction_receipt(self, txh, timeout=None):
+            # 旧呼び出し形(位置引数1つ)と新形(timeout 付き)の両方を受ける。timeout だけを
+            # 受ける偽物にすると、修正前ソースに対して TypeError で赤くなり
+            # 「タイムアウトが無い事」ではなく「呼び出し形が変わった事」を証明してしまう。
             calls["waited_for"] = txh
+            calls["receipt_timeout"] = timeout
+            if receipt_raises is not None:
+                raise receipt_raises
 
     class FakeWeb3:
         def __init__(self, provider):
@@ -221,12 +236,17 @@ def test_preview_non_402_returns_error_with_truncated_body(monkeypatch):
 
 
 def test_preview_missing_payment_block_is_graceful(monkeypatch):
+    """payment ブロックが無い 402 は「エラー」として返す。
+
+    以前は None 埋めの正常形（preview=None, price 全 None）を返していた。KeyError にならない
+    点は良かったが、エージェントから見ると「プレビューが提供されていない」のか
+    「ゲートウェイが壊れている」のか区別できない。区別できない返答は判断材料にならないので、
+    明示的な error に変更した（無料経路なので金銭的影響はない）。
+    """
     fake = FakeRequests(get_responses=[FakeResp(402, {"unexpected": True})])
     monkeypatch.setattr(srv, "requests", fake)
-    out = srv.preview()  # KeyError にならず None 埋めで返る
-    assert out == {"preview": None,
-                   "price": {"amount": None, "token": None, "network": None},
-                   "invoice_id": None, "recipient": None}
+    out = srv.preview()
+    assert "error" in out and "payment" in out["error"]
 
 
 # ---------------------------------------------------------------- purchase (支払い)
@@ -239,8 +259,9 @@ def test_purchase_without_key_errors_before_any_network(monkeypatch):
 
 def test_purchase_non_402_challenge_errors(monkeypatch):
     out, calls, fake = run_purchase(monkeypatch, [FakeResp(503, text="down")])
-    assert out == {"error": "expected 402, got 503"}
-    assert "raw_sent" not in calls  # 送金には進まない
+    assert out["error"] == "expected 402, got 503"
+    assert out["spent"] is False        # 「まだ1円も出ていない」事を戻り値で明言する
+    assert "raw_sent" not in calls      # 送金には進まない
 
 
 def test_purchase_amount_is_usdc_6_decimals(monkeypatch):
@@ -321,7 +342,7 @@ def test_purchase_verification_timeout_after_40_attempts(monkeypatch):
         [FakeResp(402, make_challenge()),
          FakeResp(402, {"retryable": True})])  # 永遠に retryable
     assert out == {"error": "timed out waiting for verification",
-                   "tx_hash": "0xabc123def456"}
+                   "tx_hash": "0xabc123def456", "spent": True}
     assert len(fake.get_calls) == 1 + 40  # challenge + 上限40回で必ず打ち切り
 
 
@@ -358,10 +379,13 @@ def test_balance_derives_address_from_env_key(monkeypatch):
 def test_topup_posts_tx_hash(monkeypatch):
     fake = FakeRequests(post_responses=[FakeResp(200, {"credited": True})])
     monkeypatch.setattr(srv, "requests", fake)
-    assert srv.topup("0xdeadbeef") == {"credited": True}
+    # 実在の形（0x + 32バイト）を使う。'0xdeadbeef' は tx hash として成立しないので、
+    # 短縮値を使い続けると「サーバへ素通しする」挙動をテストが追認してしまう。
+    txh = "0x" + "de" * 32
+    assert srv.topup(txh) == {"credited": True}
     call = fake.post_calls[0]
     assert call["url"] == srv.BASE + "/account/topup"
-    assert call["json"] == {"tx_hash": "0xdeadbeef"}
+    assert call["json"] == {"tx_hash": txh}
     assert call["timeout"] == 60
 
 
@@ -388,7 +412,12 @@ def test_spend_gasless_empty_account_treated_as_insufficient(monkeypatch):
 
 def test_spend_gasless_signs_voucher_and_builds_headers(monkeypatch):
     monkeypatch.setenv("X402_AGENT_PRIVATE_KEY", TEST_PK)
-    voucher_msg = "x402-account:x402.obolpay.xyz:%s:3" % TEST_ADDR
+    # 本番が実際に返す書式。旧フィクスチャは "x402-account:<domain>:<addr>:3"（4要素）
+    # だったが、これはサーバが一度も送っていない形式で、
+    # 実測: GET https://x402.obolpay.xyz/account/0xf39f… ->
+    #   "voucher_message":"x402-spend:x402.obolpay.xyz:0xf39f…:0:10000"
+    # 「サーバ提示の文字列に署名する」事を、サーバが出さない文字列で実証していた。
+    voucher_msg = "x402-spend:x402.obolpay.xyz:%s:3:5000" % TEST_ADDR
     acc = {"balance_units": 10_000, "price_units": 5_000,
            "next_nonce": 3, "voucher_message": voucher_msg}
     fake = FakeRequests(get_responses=[FakeResp(200, acc),
