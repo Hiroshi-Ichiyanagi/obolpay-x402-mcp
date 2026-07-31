@@ -14,6 +14,7 @@ What it does: 402 -> pay 0.01 USDC -> sign EIP-191 binding -> unlock data -> ver
 """
 import os
 import time
+from decimal import Decimal
 
 import requests
 from eth_account import Account
@@ -25,6 +26,13 @@ ENDPOINT = f"{BASE}/api/v1/protected-data?types=openunit"
 UA = {"User-Agent": "x402-openunit/1.0"}   # Cloudflare blocks empty/raw-urllib UAs — always send one
 RPC = "https://mainnet.base.org"
 
+# Seatbelts. The advertised price is 0.01 USDC; anything wildly above that means the quote is not
+# what this script was written for, and the right move is to stop rather than to sign.
+MAX_SPEND_USDC = Decimal(os.environ.get("X402_MAX_SPEND_USDC", "1.00"))
+MAX_SPEND_UNITS = int(MAX_SPEND_USDC.scaleb(6))
+USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+CHAIN_ID = 8453
+
 
 def main():
     pk = os.environ["X402_AGENT_PRIVATE_KEY"]
@@ -34,11 +42,23 @@ def main():
 
     # 1) Discover: 402 challenge (also carries a FREE preview — evaluate before paying)
     r = requests.get(ENDPOINT, headers=UA, timeout=30)
-    assert r.status_code == 402, r.status_code
+    if r.status_code != 402:
+        raise SystemExit(f"expected a 402 challenge, got {r.status_code}: {r.text[:200]}")
     ch = r.json()["payment"]
     token = Web3.to_checksum_address(ch["token_contract"])
     to = Web3.to_checksum_address(ch["recipient"])
-    amount = int(round(float(ch["amount"]) * 10 ** 6))     # USDC has 6 decimals
+
+    # A 402 quote is a PRICE, not an authorization. Check it before signing — the amount, the
+    # token and the chain all arrive from the server, and this script has your private key.
+    # Decimal rather than float: money should not be scaled through binary floating point.
+    amount = int(Decimal(str(ch["amount"])).scaleb(6))     # USDC has 6 decimals
+    if not 0 < amount <= MAX_SPEND_UNITS:
+        raise SystemExit(f"refusing quote of {ch['amount']} USDC (cap {MAX_SPEND_USDC})")
+    if token.lower() != USDC_BASE.lower():
+        raise SystemExit(f"refusing to transfer {token}: not Base USDC")
+    if ch.get("chain_id") != CHAIN_ID:
+        raise SystemExit(f"challenge names chain {ch.get('chain_id')}, expected {CHAIN_ID}")
+
     domain, invoice = ch["signature_scheme"]["domain"], ch["invoice_id"]
     print(f"quote: {ch['amount']} {ch['token']} -> {to}  (invoice {invoice[:8]}…)")
 
@@ -66,14 +86,23 @@ def main():
         sig = "0x" + sig
 
     # 4) Unlock: re-send with the payment headers (retry a few times while the tx propagates)
+    #    allow_redirects=False: requests strips only `Authorization` when a redirect changes host,
+    #    so a 302 would hand this payment signature to whatever host the response names.
     headers = {**UA, "X-Payment-Invoice-ID": invoice, "X-Payment-Tx-Hash": txh, "X-Payment-Signature": sig}
     for _ in range(10):
-        rr = requests.get(ENDPOINT, headers=headers, timeout=30)
+        rr = requests.get(ENDPOINT, headers=headers, timeout=30, allow_redirects=False)
         if rr.status_code == 200:
             break
         if rr.status_code == 402 and rr.json().get("retryable"):
             time.sleep(3); continue
-        raise SystemExit(f"unlock failed: {rr.status_code} {rr.text[:200]}")
+        raise SystemExit(f"unlock failed: {rr.status_code} {rr.text[:200]}\n  tx_hash: {txh}")
+    else:
+        # The retries ran out while the payment was still 'retryable'. Falling through to
+        # rr.json() here read the last 402 body and died on a KeyError two lines later, which
+        # buried the tx hash — the only reference to USDC that has already left the wallet.
+        raise SystemExit(f"still unverified after 10 attempts, but the payment IS on-chain.\n"
+                         f"  tx_hash: {txh}\n"
+                         f"  re-run the unlock step with this hash to claim the data.")
     data = rr.json()
     ou = data["data"]["items"][-1]
     print(f"\n=== openunit (as of ECB {ou['ecb_valuation_date']}) ===")
