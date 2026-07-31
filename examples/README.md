@@ -53,7 +53,7 @@ An agent that "buys openunit and summarizes today's macro" is ~20 lines: preview
 | category | what you get |
 |---|---|
 | **openunit** | Population-weighted unit of account (SDR method, by *people*), valued at today's ECB FX. **Byte-for-byte reproducible** (input_digest + artifact_hash). |
-| **jp-equity-convergence** | KCS multi-pillar convergence scan of JP equities — top-20 with pillar breakdown. *Informational only.* |
+| **jp-business-day** | Japan bank/TSE business-day calendar resolved for today: T+1..T+20 settlement dates, month-end cut-offs, and the Dec 31–Jan 3 closure the official holiday source omits. |
 | **llm-equivalence** | Measured local-LLM backend (llama.cpp / MLX / candle) output-equivalence, consistency, swap-latency & memory matrix on Apple Silicon. |
 | **ai-trust-artifacts** | Real content-provenance certificates + a 3-trail (model/inference/economic) verified AI supply-chain binding. |
 | **governance** | Verified governed-AI spending benchmark (1000 intents, verify=PASS). |
