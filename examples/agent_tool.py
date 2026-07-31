@@ -13,8 +13,10 @@ Two things here:
     pip install web3 eth-account requests            # (+ langchain, optional)
     export X402_AGENT_PRIVATE_KEY=0x...               # only needed for paid=True
 
-Swap `?types=openunit` for jp-equity-convergence / llm-equivalence /
+Swap `?types=openunit` for jp-business-day / llm-equivalence /
 ai-trust-artifacts / governance to sell/buy the other datasets.
+The authoritative list is `available_types` in the 402 body — read that
+rather than trusting this line, which is only as fresh as its last edit.
 """
 import os
 import requests
