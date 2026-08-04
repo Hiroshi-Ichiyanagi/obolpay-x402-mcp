@@ -32,6 +32,8 @@ def get_openunit(paid: bool = False) -> dict:
     url = f"{BASE}/api/v1/protected-data?types=openunit"
     if not paid:
         r = requests.get(url, headers=UA, timeout=30)
+        if r.status_code != 402:
+            raise RuntimeError(f"expected 402, got {r.status_code}")
         prev = r.json()["payment"]["preview"]
         return {"paid": False, "preview": prev,
                 "note": "free preview — call with paid=True to unlock the verifiable value"}

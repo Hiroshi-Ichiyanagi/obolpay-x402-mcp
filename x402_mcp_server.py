@@ -29,6 +29,7 @@ Tools:
     verify_receipt(message, sig)   -> third-party verification of a proof-of-purchase receipt
 """
 import os
+import re
 import time
 
 import requests
@@ -38,6 +39,7 @@ BASE = os.environ.get("X402_BASE_URL", "https://x402.obolpay.xyz").rstrip("/")
 ENDPOINT = BASE + "/api/v1/protected-data"
 RPC = os.environ.get("X402_BASE_RPC_URL", "https://mainnet.base.org")
 UA = {"User-Agent": "x402-mcp/1.0"}   # send a UA (Cloudflare blocks empty/raw-urllib)
+_ADDR_RE = re.compile(r"^0x[0-9a-f]{40}$")   # a lowercased checksum-stripped EVM address
 
 mcp = FastMCP("x402-obolpay")
 
@@ -46,7 +48,13 @@ mcp = FastMCP("x402-obolpay")
 def discover() -> dict:
     """Return the x402 gateway's machine-readable manifest: price, token, network, recipient,
     payment flow, free-preview and proof-of-purchase capabilities. No payment required."""
-    return requests.get(BASE + "/.well-known/x402", headers=UA, timeout=30).json()
+    r = requests.get(BASE + "/.well-known/x402", headers=UA, timeout=30)
+    if r.status_code != 200:
+        return {"error": f"gateway returned {r.status_code}", "status": r.status_code, "body": r.text[:400]}
+    try:
+        return r.json()
+    except ValueError:
+        return {"error": "non-JSON response", "status": r.status_code, "body": r.text[:400]}
 
 
 @mcp.tool()
@@ -83,25 +91,29 @@ def purchase() -> dict:
     r = requests.get(ENDPOINT, headers=UA, timeout=30)
     if r.status_code != 402:
         return {"error": f"expected 402, got {r.status_code}"}
-    ch = r.json()["payment"]
-    token = Web3.to_checksum_address(ch["token_contract"])
-    to = Web3.to_checksum_address(ch["recipient"])
-    amount = int(round(float(ch["amount"]) * 10 ** 6))  # USDC 6 decimals
-    domain, invoice = ch["signature_scheme"]["domain"], ch["invoice_id"]
+    try:
+        ch = r.json()["payment"]
+        token = Web3.to_checksum_address(ch["token_contract"])
+        to = Web3.to_checksum_address(ch["recipient"])
+        amount = int(round(float(ch["amount"]) * 10 ** 6))  # USDC 6 decimals
+        domain, invoice = ch["signature_scheme"]["domain"], ch["invoice_id"]
+        chain_id = ch["chain_id"]
+    except (KeyError, TypeError, ValueError) as e:
+        return {"error": f"unexpected 402 body: {e}", "body": r.text[:400]}
 
     erc20 = w3.eth.contract(address=token, abi=[{"name": "transfer", "type": "function",
         "stateMutability": "nonpayable", "inputs": [{"name": "to", "type": "address"},
         {"name": "value", "type": "uint256"}], "outputs": [{"type": "bool"}]}])
     tx = erc20.functions.transfer(to, amount).build_transaction({
         "from": acct.address, "nonce": w3.eth.get_transaction_count(acct.address),
-        "chainId": ch["chain_id"], "gas": 120000,
+        "chainId": chain_id, "gas": 120000,
         "maxFeePerGas": w3.eth.gas_price * 2, "maxPriorityFeePerGas": w3.to_wei(0.001, "gwei")})
     signed = acct.sign_transaction(tx)
     raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
     txh = w3.eth.send_raw_transaction(raw).hex()
     if not txh.startswith("0x"):
         txh = "0x" + txh
-    w3.eth.wait_for_transaction_receipt(txh)
+    w3.eth.wait_for_transaction_receipt(txh, timeout=120)
 
     msg = "x402:" + domain + ":" + invoice + ":" + txh.lower()
     sig = Account.sign_message(encode_defunct(text=msg), pk).signature.hex()
@@ -144,6 +156,8 @@ def balance(address: str = "") -> dict:
         if not os.environ.get("X402_AGENT_PRIVATE_KEY"):
             return {"error": "provide address or set X402_AGENT_PRIVATE_KEY"}
         addr = _agent_address()
+    if not _ADDR_RE.match(addr):
+        return {"error": "invalid address"}
     return requests.get(BASE + "/account/" + addr, headers=UA, timeout=30).json()
 
 
@@ -162,8 +176,12 @@ def spend_gasless() -> dict:
     balance debit). Requires X402_AGENT_PRIVATE_KEY with a funded balance."""
     from eth_account import Account
     from eth_account.messages import encode_defunct
-    pk = os.environ["X402_AGENT_PRIVATE_KEY"]
+    pk = os.environ.get("X402_AGENT_PRIVATE_KEY")
+    if not pk:
+        return {"error": "X402_AGENT_PRIVATE_KEY not set"}
     addr = _agent_address()
+    if not _ADDR_RE.match(addr):
+        return {"error": "invalid address"}
     acc = requests.get(BASE + "/account/" + addr, headers=UA, timeout=30).json()
     if acc.get("balance_units", 0) < acc.get("price_units", 1):
         return {"error": "insufficient_balance", "account": acc, "hint": "call topup(tx_hash) after depositing USDC"}

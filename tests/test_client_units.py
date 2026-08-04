@@ -124,8 +124,9 @@ def install_fake_web3(monkeypatch, calls, tx_hash_hex="abc123def456"):
                     return tx_hash_hex
             return _H()
 
-        def wait_for_transaction_receipt(self, txh):
+        def wait_for_transaction_receipt(self, txh, timeout=None):
             calls["waited_for"] = txh
+            calls["wait_timeout"] = timeout
 
     class FakeWeb3:
         def __init__(self, provider):

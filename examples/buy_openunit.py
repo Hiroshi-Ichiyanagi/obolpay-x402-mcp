@@ -74,6 +74,8 @@ def main():
         if rr.status_code == 402 and rr.json().get("retryable"):
             time.sleep(3); continue
         raise SystemExit(f"unlock failed: {rr.status_code} {rr.text[:200]}")
+    if rr.status_code != 200:
+        raise SystemExit(f"unlock timed out: {rr.status_code} {rr.text[:200]}")
     data = rr.json()
     ou = data["data"]["items"][-1]
     print(f"\n=== openunit (as of ECB {ou['ecb_valuation_date']}) ===")
