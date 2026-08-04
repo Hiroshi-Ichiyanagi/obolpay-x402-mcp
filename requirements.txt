@@ -1,4 +1,4 @@
-mcp[cli]>=1.28,<2  # mcp 2.0 は FastMCP(mcp.server.fastmcp) を削除。<2 に固定(兄弟リポ準拠)
+mcp[cli]>=2.0.0,<3  # mcp 2.0 は FastMCP(mcp.server.fastmcp) を削除。<2 に固定(兄弟リポ準拠)
 # 以下も上限を固定する。理由は mcp と同じで、これらは「金の経路」そのものだから:
 # web3/eth-account は署名とトランザクション構築を担い、実際に v6→v7 で
 # signed.rawTransaction が signed.raw_transaction に改名された前例がある
