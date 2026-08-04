@@ -20,9 +20,35 @@ rather than trusting this line, which is only as fresh as its last edit.
 """
 import os
 import requests
+from decimal import Decimal
 
 BASE = "https://x402.obolpay.xyz"
 UA = {"User-Agent": "x402-agent-tool/1.0"}
+
+# Seatbelts (see buy_openunit.py). An agent calls this with no human watching and the process
+# holds a funded key, so the quote in the 402 reply is checked before anything gets signed.
+MAX_SPEND_USDC = Decimal(os.environ.get("X402_MAX_SPEND_USDC", "1.00"))
+USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+CHAIN_ID = 8453
+
+
+def _challenge(url: str) -> dict:
+    """Fetch the 402 challenge, failing readably instead of with a bare KeyError/ValueError.
+
+    The gateway sits behind Cloudflare, so a bad minute returns an HTML challenge page rather
+    than JSON, and `.json()["payment"]` reports that as a decode error from inside requests.
+    """
+    r = requests.get(url, headers=UA, timeout=30)
+    if r.status_code != 402:
+        raise RuntimeError(f"expected a 402 challenge, got {r.status_code}: {r.text[:200]}")
+    try:
+        body = r.json()
+    except ValueError:
+        raise RuntimeError(f"402 body was not JSON: {r.text[:200]!r}") from None
+    payment = body.get("payment")
+    if not isinstance(payment, dict):
+        raise RuntimeError(f"402 body has no 'payment' object: {str(body)[:200]}")
+    return payment
 
 
 def get_openunit(paid: bool = False) -> dict:
@@ -31,9 +57,7 @@ def get_openunit(paid: bool = False) -> dict:
     """
     url = f"{BASE}/api/v1/protected-data?types=openunit"
     if not paid:
-        r = requests.get(url, headers=UA, timeout=30)
-        prev = r.json()["payment"]["preview"]
-        return {"paid": False, "preview": prev,
+        return {"paid": False, "preview": _challenge(url).get("preview"),
                 "note": "free preview — call with paid=True to unlock the verifiable value"}
     # Paid path reuses the reference flow (see buy_openunit.py for the full, commented version).
     # (full commented flow in buy_openunit.py; inlined here for tool use)
@@ -41,11 +65,19 @@ def get_openunit(paid: bool = False) -> dict:
     from eth_account.messages import encode_defunct
     from web3 import Web3
     import time
-    pk = os.environ["X402_AGENT_PRIVATE_KEY"]
+    pk = os.environ.get("X402_AGENT_PRIVATE_KEY")
+    if not pk:
+        raise RuntimeError("X402_AGENT_PRIVATE_KEY not set; cannot pay")
     acct = Account.from_key(pk); w3 = Web3(Web3.HTTPProvider("https://mainnet.base.org"))
-    ch = requests.get(url, headers=UA, timeout=30).json()["payment"]
+    ch = _challenge(url)
     token, to = Web3.to_checksum_address(ch["token_contract"]), Web3.to_checksum_address(ch["recipient"])
-    amount = int(round(float(ch["amount"]) * 10 ** 6))
+    amount = int(Decimal(str(ch["amount"])).scaleb(6))   # Decimal, not float: this is money
+    if not 0 < amount <= int(MAX_SPEND_USDC.scaleb(6)):
+        raise RuntimeError(f"refusing quote of {ch['amount']} USDC (cap {MAX_SPEND_USDC})")
+    if token.lower() != USDC_BASE.lower():
+        raise RuntimeError(f"refusing to transfer {token}: not Base USDC")
+    if ch.get("chain_id") != CHAIN_ID:
+        raise RuntimeError(f"challenge names chain {ch.get('chain_id')}, expected {CHAIN_ID}")
     erc20 = w3.eth.contract(address=token, abi=[{"name": "transfer", "type": "function",
         "stateMutability": "nonpayable", "inputs": [{"name": "to", "type": "address"},
         {"name": "amount", "type": "uint256"}], "outputs": [{"type": "bool"}]}])
@@ -59,15 +91,20 @@ def get_openunit(paid: bool = False) -> dict:
     sig = Account.sign_message(encode_defunct(text=msg), pk).signature.hex()
     sig = sig if sig.startswith("0x") else "0x" + sig
     hdr = {**UA, "X-Payment-Invoice-ID": ch["invoice_id"], "X-Payment-Tx-Hash": txh, "X-Payment-Signature": sig}
+    # allow_redirects=False: requests strips only `Authorization` across a host change, so a 302
+    # would carry this payment signature to whatever host the response names.
     for _ in range(10):
-        rr = requests.get(url, headers=hdr, timeout=30)
+        rr = requests.get(url, headers=hdr, timeout=30, allow_redirects=False)
         if rr.status_code == 200:
             ou = rr.json()["data"]["items"][-1]
-            return {"paid": True, "openunit_usd": ou["value_usd_display"],
+            return {"paid": True, "tx_hash": txh, "openunit_usd": ou["value_usd_display"],
                     "ecb_date": ou["ecb_valuation_date"], "artifact_hash": ou["artifact_hash"]}
         if rr.status_code == 402 and rr.json().get("retryable"):
             time.sleep(3); continue
-        raise RuntimeError(f"unlock failed: {rr.status_code}")
+        raise RuntimeError(f"unlock failed: {rr.status_code} (tx_hash {txh})")
+    # Retries exhausted while still 'retryable'. The USDC is spent either way, so the hash has
+    # to travel with the error — it is the only handle left on the payment.
+    raise RuntimeError(f"still unverified after 10 attempts; payment is on-chain (tx_hash {txh})")
 
 
 # --- Optional: expose it to a LangChain agent ---------------------------------

@@ -1,4 +1,10 @@
 mcp[cli]>=1.28,<2  # mcp 2.0 は FastMCP(mcp.server.fastmcp) を削除。<2 に固定(兄弟リポ準拠)
-web3
-eth-account
-requests
+# 以下も上限を固定する。理由は mcp と同じで、これらは「金の経路」そのものだから:
+# web3/eth-account は署名とトランザクション構築を担い、実際に v6→v7 で
+# signed.rawTransaction が signed.raw_transaction に改名された前例がある
+# (このリポジトリの getattr フォールバックはその名残)。範囲無指定だと
+# ある日の pip install が実弾の送金経路を黙って壊す。
+# 下限は実測済みの動作環境、上限は次のメジャー未満。
+web3>=7.16,<8
+eth-account>=0.13.7,<0.14
+requests>=2.32,<3
