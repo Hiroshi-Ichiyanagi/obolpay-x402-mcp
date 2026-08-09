@@ -8,4 +8,4 @@ mcp[cli]>=1.28,<2  # mcp 2.0 は FastMCP(mcp.server.fastmcp) を削除。<2 に�
 web3>=7.16,<8
 eth-account>=0.13.7,<0.14
 cryptography>=50  # CVE-2026-69247 (GHSA-g6cj-pr64-35w5): pin above vulnerable <50
-requests>=2.32,<3
+requests>=2.34.2,<3
