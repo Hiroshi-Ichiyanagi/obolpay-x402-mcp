@@ -6,6 +6,6 @@ mcp[cli]>=1.28,<2  # mcp 2.0 は FastMCP(mcp.server.fastmcp) を削除。<2 に�
 # ある日の pip install が実弾の送金経路を黙って壊す。
 # 下限は実測済みの動作環境、上限は次のメジャー未満。
 web3>=7.16,<8
-eth-account>=0.13.7,<0.14
+eth-account>=0.14.0,<0.15
 cryptography>=50.0.1  # CVE-2026-69247 (GHSA-g6cj-pr64-35w5): pin above vulnerable <50
 requests>=2.34.2,<3
