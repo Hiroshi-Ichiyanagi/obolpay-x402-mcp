@@ -49,7 +49,7 @@ import requests
 from requests import RequestException     # 一度だけ束縛する: except 節で
                                           # requests.RequestException と書くと、例外クラスを
                                           # 差し替え可能なモジュール参照経由で解決する事になる
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 BASE = os.environ.get("X402_BASE_URL", "https://x402.obolpay.xyz").rstrip("/")
 ENDPOINT = BASE + "/api/v1/protected-data"
@@ -74,7 +74,7 @@ USDC_DECIMALS = 6
 RECEIPT_TIMEOUT_S = int(os.environ.get("X402_RECEIPT_TIMEOUT_S", "180"))
 _ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
-mcp = FastMCP("x402-obolpay")
+mcp = MCPServer("x402-obolpay")
 
 
 class PaymentRefused(Exception):

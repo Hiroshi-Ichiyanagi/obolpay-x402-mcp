@@ -2,7 +2,8 @@
 
 意図: 依存や公式SDKの破壊的変更でサーバが import すら出来なくなる回帰を CI で捕まえる。
 （mcp 2.0 が FastMCP を mcp.server.fastmcp から削除し、無固定の mcp[cli] で
-サーバが起動不能になった事故の再発防止。）
+サーバが起動不能になった事故の再発防止。2026-09: mcp>=2.1.1 に移行し、
+FastMCP→MCPServer（mcp.server.mcpserver）に追従済み。）
 """
 import os
 import pathlib
