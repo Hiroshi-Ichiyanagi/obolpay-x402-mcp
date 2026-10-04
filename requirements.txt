@@ -7,5 +7,5 @@ mcp[cli]>=2.1.1,<3  # 2.1.1で移行: FastMCP(mcp.server.fastmcp)→MCPServer(mc
 # 下限は実測済みの動作環境、上限は次のメジャー未満。
 web3>=7.16,<8
 eth-account>=0.14.0,<0.15
-cryptography>=50.0.1  # CVE-2026-69247 (GHSA-g6cj-pr64-35w5): pin above vulnerable <50
+cryptography>=50.0.2  # CVE-2026-69247 (GHSA-g6cj-pr64-35w5): pin above vulnerable <50
 requests>=2.34.2,<3
